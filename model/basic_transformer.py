@@ -6,14 +6,14 @@ from layer import Encoder, Decoder
 
 class BasicTransformer(tf.keras.Model):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 target_vocab_size, pe_input, pe_target, rate=0.1):
+                 target_vocab_size, pe_input, pe_target, rate=0.1, att='mha'):
         super(BasicTransformer, self).__init__()
 
         self.encoder = Encoder(num_layers, d_model, num_heads, dff,
-                               input_vocab_size, pe_input, rate)
+                               input_vocab_size, pe_input, rate, att)
 
         self.decoder = Decoder(num_layers, d_model, num_heads, dff,
-                               target_vocab_size, pe_target, rate)
+                               target_vocab_size, pe_target, rate, att)
 
         self.final_layer = tf.keras.layers.Dense(target_vocab_size)
 

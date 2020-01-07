@@ -31,6 +31,20 @@ class EncoderLayer(tf.keras.layers.Layer):
         return out2
 
 
+class RelativeEncoderLayer(EncoderLayer):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, max_seq=2048):
+        super(EncoderLayer, self).__init__()
+
+        self.mha = attention.RelativeAttention(d_model, num_heads, max_seq=max_seq)
+        self.ffn = convention.point_wise_feed_forward_network(d_model, dff)
+
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+        self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.dropout2 = tf.keras.layers.Dropout(rate)
+
+
 class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, rate=0.1):
         super(DecoderLayer, self).__init__()
@@ -68,9 +82,39 @@ class DecoderLayer(tf.keras.layers.Layer):
         return out3, attn_weights_block1, attn_weights_block2
 
 
+class RelativeDecoderLayer(DecoderLayer):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, max_seq=2048):
+        super(DecoderLayer, self).__init__()
+
+        self.mha1 = attention.RelativeAttention(d_model, num_heads, max_seq=max_seq)
+        self.mha2 = attention.RelativeAttention(d_model, num_heads, max_seq=max_seq)
+
+        self.ffn = convention.point_wise_feed_forward_network(d_model, dff)
+
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+        self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.dropout2 = tf.keras.layers.Dropout(rate)
+        self.dropout3 = tf.keras.layers.Dropout(rate)
+
+
+def layer_function(encode, d_model, num_heads, dff, rate, att='mha', **kwargs) -> tf.keras.layers.Layer:
+    if att == 'mha':
+        return EncoderLayer(d_model, num_heads, dff, rate) if encode \
+            else DecoderLayer(d_model, num_heads, dff, rate)
+    elif att == 'rga':
+        max_seq = kwargs.get('max_seq', 2048)
+        return RelativeEncoderLayer(d_model, num_heads, dff, rate, max_seq) if encode \
+            else RelativeDecoderLayer(d_model, num_heads, dff, rate, max_seq)
+    else:
+        raise NotImplementedError()
+
+
 class Encoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-                 maximum_position_encoding, rate=0.1):
+                 maximum_position_encoding, rate=0.1, att='mha'):
         """
 
         :param num_layers: encoder layers
@@ -78,8 +122,9 @@ class Encoder(tf.keras.layers.Layer):
         :param num_heads: number of the splits of multi-head attention
         :param dff: middle dimension for the feed forward network (2 fc layers)
         :param input_vocab_size:
-        :param maximum_position_encoding:
+        :param maximum_position_encoding: max sequence length
         :param rate: dropout rate (keep_prob = 1 - rate)
+        :param att: type of attention
         """
         super(Encoder, self).__init__()
 
@@ -89,8 +134,9 @@ class Encoder(tf.keras.layers.Layer):
         self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model)
         self.pos_encoding = convention.positional_encoding(maximum_position_encoding, self.d_model)
 
-        self.enc_layers = [EncoderLayer(d_model, num_heads, dff, rate)
-                           for _ in range(num_layers)]
+        self.enc_layers = [
+            layer_function(True, d_model, num_heads, dff, rate, att=att, max_seq=maximum_position_encoding)
+            for _ in range(num_layers)]
 
         self.dropout = tf.keras.layers.Dropout(rate)
 
@@ -113,7 +159,7 @@ class Encoder(tf.keras.layers.Layer):
 
 class Decoder(tf.keras.layers.Layer):
     def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size,
-                 maximum_position_encoding, rate=0.1):
+                 maximum_position_encoding, rate=0.1, att='mha'):
         """
 
         :param num_layers: decoder layers
@@ -123,6 +169,7 @@ class Decoder(tf.keras.layers.Layer):
         :param target_vocab_size:
         :param maximum_position_encoding:
         :param rate: dropout rate (keep_prob = 1 - rate)
+        :param att: type of attention
         """
         super(Decoder, self).__init__()
 
@@ -132,8 +179,9 @@ class Decoder(tf.keras.layers.Layer):
         self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
         self.pos_encoding = convention.positional_encoding(maximum_position_encoding, d_model)
 
-        self.dec_layers = [DecoderLayer(d_model, num_heads, dff, rate)
-                           for _ in range(num_layers)]
+        self.dec_layers = [
+            layer_function(False, d_model, num_heads, dff, rate, att=att, max_seq=maximum_position_encoding)
+            for _ in range(num_layers)]
         self.dropout = tf.keras.layers.Dropout(rate)
 
     # noinspection PyMethodOverriding

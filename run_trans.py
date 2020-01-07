@@ -79,14 +79,15 @@ def train_translate():
                                    input_vocab_size, target_vocab_size,
                                    pe_input=input_vocab_size,
                                    pe_target=target_vocab_size,
-                                   rate=dropout_rate)
+                                   rate=dropout_rate,
+                                   att='rga')
 
     learning_rate = CustomSchedule(d_model)
 
     optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
                                          epsilon=1e-9)
 
-    checkpoint_path = "./checkpoints/train"
+    checkpoint_path = "./checkpoints/train_rga"
 
     ckpt = tf.train.Checkpoint(transformer=transformer,
                                optimizer=optimizer)
