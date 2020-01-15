@@ -142,9 +142,10 @@ class RelativeAttention(MultiHeadAttention):
         k = self.split_heads(k, batch_size)  # (batch_size, num_heads, seq_len_k, depth)
         v = self.split_heads(v, batch_size)  # (batch_size, num_heads, seq_len_v, depth)
 
-        l_q = q.shape[2]
+        # l_q = q.shape[2]
+        l_q = tf.shape(q)[2]
         e = self._get_position_embedding(l_q)
-        l_k = k.shape[2]
+        l_k = tf.shape(k)[2]
         q_et = tf.einsum('nhld,md->nhlm', q, e)
         q_et = self._masking(q_et)
 
@@ -163,14 +164,17 @@ class RelativeAttention(MultiHeadAttention):
         return output, attention_weights
 
     def _get_position_embedding(self, len_q):
-        starting_point = max(0, self.max_seq - len_q)
+        print(len_q)
+        # starting_point = tf.max(0, self.max_seq - len_q)
+        starting_point = tf.math.maximum(0, self.max_seq - len_q)
         e = self.pos_emb[starting_point:, :]
         return e
 
     @staticmethod
     def _masking(qe: tf.Tensor):
+        q_shape = tf.shape(qe)
         mask = tf.sequence_mask(
-            tf.range(qe.shape[-1] - 1, qe.shape[-1] - qe.shape[-2] - 1, -1), qe.shape[-1])
+            tf.range(q_shape[-1] - 1, q_shape[-1] - q_shape[-2] - 1, -1), q_shape[-1])
 
         mask = tf.logical_not(mask)
         mask = tf.cast(mask, tf.float32)
@@ -187,15 +191,19 @@ class RelativeAttention(MultiHeadAttention):
         :return:
         """
         mat_1 = tf.pad(mat, [[0, 0], [0, 0], [0, 0], [1, 0]], mode='CONSTANT')
-        head = mat_1.shape[-3]
-        d_1 = mat_1.shape[-2]
-        d_2 = mat_1.shape[-1]
+        mat_shape = tf.shape(mat_1)
+        head = mat_shape[-3]
+        d_1 = mat_shape[-2]
+        d_2 = mat_shape[-1]
         mat_1 = tf.reshape(mat_1, shape=[-1, head, d_2, d_1])
         s = mat_1[:, :, 1:, :]
 
-        if l_k > l_q:
-            s = tf.pad(s, [[0, 0], [0, 0], [0, 0], [0, l_k - l_q]])
-        elif l_k < l_q:
-            s = s[:, :, :, :l_k]
+        s = tf.cond(l_k > l_q, lambda: tf.pad(s, [[0, 0], [0, 0], [0, 0], [0, l_k - l_q]]), lambda: s)
+        s = tf.cond(l_k < l_q, lambda: s[:, :, :, :l_k], lambda: s)
+
+        # if l_k > l_q:
+        #     s = tf.pad(s, [[0, 0], [0, 0], [0, 0], [0, l_k - l_q]])
+        # elif l_k < l_q:
+        #     s = s[:, :, :, :l_k]
 
         return s
